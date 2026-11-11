@@ -1,0 +1,10 @@
+# =============================================================================
+# FILE: terraform/.gitignore
+# OVERVIEW: Keeps Terraform local files out of Git. Commit .terraform.lock.hcl
+# (provider version lock) but never state files or plan files.
+# =============================================================================
+.terraform/
+*.tfstate
+*.tfstate.*
+tfplan
+crash.log

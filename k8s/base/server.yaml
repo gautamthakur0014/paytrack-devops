@@ -1,0 +1,59 @@
+# =============================================================================
+# FILE: k8s/base/server.yaml
+# OVERVIEW: Backend (Express API) Deployment + Service.
+#   - non-secret config  <- ConfigMap "server-config" (generated per overlay)
+#   - secrets            <- Secret "server-secrets" (made by ExternalSecret)
+#   - health probes use GET /health (already exists in src/index.js)
+# =============================================================================
+
+# Runs the API pods. Image tag is set by CI with `kustomize edit set image`.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: paytrack-server
+spec:
+  replicas: 1                       # overridden in overlays
+  selector:
+    matchLabels: { app: paytrack-server }
+  template:
+    metadata:
+      labels: { app: paytrack-server }
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000             # "node" user in the image
+      containers:
+        - name: server
+          image: paytrack-server    # placeholder, replaced by CI
+          ports:
+            - containerPort: 5000
+          envFrom:
+            - configMapRef: { name: server-config }
+            - secretRef: { name: server-secrets }
+          # Ready only when the app answers /health (traffic is held back until then).
+          readinessProbe:
+            httpGet: { path: /health, port: 5000 }
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          # Restart the container if it stops answering.
+          livenessProbe:
+            httpGet: { path: /health, port: 5000 }
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits: { memory: 256Mi }
+---
+# Stable in-cluster address for the API. The annotation tells the ALB which URL
+# to use for its target-group health check (default would be "/", which 404s).
+apiVersion: v1
+kind: Service
+metadata:
+  name: paytrack-server
+  annotations:
+    alb.ingress.kubernetes.io/healthcheck-path: /health
+spec:
+  selector: { app: paytrack-server }
+  ports:
+    - port: 80
+      targetPort: 5000

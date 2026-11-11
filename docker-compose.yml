@@ -1,0 +1,43 @@
+# =============================================================================
+# FILE: docker-compose.yml
+# OVERVIEW: Local-only stack to test the containers BEFORE touching AWS.
+#   mongo + redis (local stand-ins for Atlas/Upstash) + server + client.
+# Run:  docker compose up --build      -> app at http://localhost:8080
+# Not used by CI/CD or AWS.
+# =============================================================================
+services:
+  # Local MongoDB (in AWS you use your external MongoDB Atlas instead).
+  mongo:
+    image: mongo:7
+    ports: ["27017:27017"]
+
+  # Local Redis (in AWS you use your external Upstash Redis instead).
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+
+  # The API. Dummy secrets are fine locally; real ones live in AWS Secrets Manager.
+  server:
+    build: ./server
+    ports: ["5000:5000"]
+    depends_on: [mongo, redis]
+    environment:
+      NODE_ENV: development          # development => non-secure cookies so plain http works
+      PORT: "5000"
+      CLIENT_URL: http://localhost:8080
+      MONGO_URI: mongodb://mongo:27017/paytrack
+      REDIS_URL: redis://redis:6379
+      JWT_ACCESS_SECRET: local-access-secret
+      JWT_REFRESH_SECRET: local-refresh-secret
+      JWT_ACCESS_EXPIRY: 15m
+      JWT_REFRESH_EXPIRY: 7d
+      COOKIE_SECRET: local-cookie-secret
+
+  # The SPA, built to call the API directly on localhost:5000.
+  client:
+    build:
+      context: ./client
+      args:
+        VITE_API_URL: http://localhost:5000
+    ports: ["8080:80"]
+    depends_on: [server]

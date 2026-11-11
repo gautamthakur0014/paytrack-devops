@@ -1,0 +1,16 @@
+# =============================================================================
+# FILE: k8s/base/kustomization.yaml
+# OVERVIEW: Lists every manifest that makes up the app. Environments
+# (dev/prod) reuse this base and only patch what differs.
+# =============================================================================
+
+# Resources included in every environment.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - namespace.yaml
+  - secretstore.yaml
+  - externalsecret.yaml
+  - server.yaml
+  - client.yaml
+  - ingress.yaml

@@ -1,0 +1,76 @@
+# =============================================================================
+# FILE: .github/workflows/_deploy.yml
+# OVERVIEW: REUSABLE deploy job (called twice by cd.yml: once for dev, once for
+# prod). Same steps for both envs => only inputs differ. Steps:
+#   1. log in to AWS via OIDC (role "paytrack-gha-deploy-<env>")
+#   2. point kubectl at the env's EKS cluster
+#   3. set the image tags (git SHA) in the kustomize overlay and apply
+#   4. wait for rollout; undo it automatically if it fails
+#   5. smoke test the public URL
+# The GitHub "environment" gives per-env variables and (for prod) manual approval.
+# =============================================================================
+name: Deploy (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      env:    { type: string, required: true }   # dev | prod
+      host:   { type: string, required: true }   # e.g. dev.getgautam.co.uk
+      sha:    { type: string, required: true }   # image tag to deploy
+      region: { type: string, required: true }
+      account_id: { type: string, required: true }
+
+permissions:
+  id-token: write   # needed to request the OIDC token
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.env }}      # prod has "required reviewers" => approval gate
+    env:
+      REGISTRY: ${{ inputs.account_id }}.dkr.ecr.${{ inputs.region }}.amazonaws.com
+    steps:
+      - uses: actions/checkout@v4
+
+      # Passwordless AWS login: GitHub proves who it is, AWS hands out 1h credentials.
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ inputs.account_id }}:role/paytrack-gha-deploy-${{ inputs.env }}
+          aws-region: ${{ inputs.region }}
+
+      # Writes ~/.kube/config for paytrack-<env>.
+      - name: Configure kubectl
+        run: aws eks update-kubeconfig --name paytrack-${{ inputs.env }} --region ${{ inputs.region }}
+
+      # Swap the placeholder image names for the real ECR images (tag = commit SHA),
+      # then apply everything. The same SHA that ran in dev is what reaches prod.
+      - name: Apply manifests
+        working-directory: k8s/overlays/${{ inputs.env }}
+        run: |
+          kustomize version
+          kustomize edit set image \
+            paytrack-server=$REGISTRY/paytrack-server:${{ inputs.sha }} \
+            paytrack-client=$REGISTRY/paytrack-client:${{ inputs.sha }}
+          kubectl apply -k .
+
+      # Block until new pods are Ready (or time out and fail the job).
+      - name: Wait for rollout
+        run: |
+          kubectl -n paytrack rollout status deploy/paytrack-server --timeout=300s
+          kubectl -n paytrack rollout status deploy/paytrack-client --timeout=300s
+
+      # Safety net: if rollout failed, go back to the previous ReplicaSet.
+      - name: Roll back on failure
+        if: failure()
+        run: |
+          kubectl -n paytrack rollout undo deploy/paytrack-server || true
+          kubectl -n paytrack rollout undo deploy/paytrack-client || true
+
+      # Prove it works end-to-end through DNS + HTTPS + ALB. Retries because on a
+      # FIRST deploy the ALB, DNS record and certificate need a few minutes.
+      - name: Smoke test
+        run: |
+          curl -fsS --retry 40 --retry-delay 15 --retry-all-errors --retry-max-time 600 https://${{ inputs.host }}/health
+          curl -fsS -o /dev/null https://${{ inputs.host }}/
+          echo "OK: https://${{ inputs.host }} is live"

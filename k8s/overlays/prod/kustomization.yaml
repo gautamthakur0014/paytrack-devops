@@ -1,0 +1,58 @@
+# =============================================================================
+# FILE: k8s/overlays/prod/kustomization.yaml
+# OVERVIEW: The "prod" environment = shared base + these differences:
+#   host name (getgautam.co.uk), AWS secret name (paytrack/prod/server),
+#   replica count (2), config values.
+# CI sets the image tags on top of this file (kustomize edit set image).
+# =============================================================================
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Everything is deployed into the paytrack namespace.
+namespace: paytrack
+
+# Start from the shared base.
+resources:
+  - ../../base
+  - pdb.yaml
+
+# Non-secret server settings (becomes ConfigMap "server-config").
+configMapGenerator:
+  - name: server-config
+    literals:
+      - NODE_ENV=production
+      - PORT=5000
+      - CLIENT_URL=https://getgautam.co.uk
+      - LOG_LEVEL=info
+      - JWT_ACCESS_EXPIRY=15m
+      - JWT_REFRESH_EXPIRY=7d
+
+# Per-environment patches (JSON-patch style: replace exactly one field each).
+patches:
+  # Which secret in AWS Secrets Manager this environment reads.
+  - target: { kind: ExternalSecret, name: server-secrets }
+    patch: |-
+      - op: replace
+        path: /spec/dataFrom/0/extract/key
+        value: paytrack/prod/server
+  # The public host name (also drives ACM cert discovery + DNS record).
+  - target: { kind: Ingress, name: paytrack }
+    patch: |-
+      - op: replace
+        path: /spec/rules/0/host
+        value: getgautam.co.uk
+      - op: replace
+        path: /spec/tls/0/hosts/0
+        value: getgautam.co.uk
+  # How many pods to run.
+  - target: { kind: Deployment, name: paytrack-server }
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 2
+  - target: { kind: Deployment, name: paytrack-client }
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 2

@@ -1,0 +1,46 @@
+# =============================================================================
+# FILE: k8s/base/client.yaml
+# OVERVIEW: Frontend (nginx serving the React build) Deployment + Service.
+# =============================================================================
+
+# Runs the nginx pods that serve the SPA.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: paytrack-client
+spec:
+  replicas: 1                       # overridden in overlays
+  selector:
+    matchLabels: { app: paytrack-client }
+  template:
+    metadata:
+      labels: { app: paytrack-client }
+    spec:
+      containers:
+        - name: client
+          image: paytrack-client    # placeholder, replaced by CI
+          ports:
+            - containerPort: 80
+          readinessProbe:
+            httpGet: { path: /healthz, port: 80 }
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /healthz, port: 80 }
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            requests: { cpu: 50m, memory: 32Mi }
+            limits: { memory: 128Mi }
+---
+# In-cluster address for the frontend. ALB health check for this service uses "/healthz".
+apiVersion: v1
+kind: Service
+metadata:
+  name: paytrack-client
+  annotations:
+    alb.ingress.kubernetes.io/healthcheck-path: /healthz
+spec:
+  selector: { app: paytrack-client }
+  ports:
+    - port: 80
+      targetPort: 80

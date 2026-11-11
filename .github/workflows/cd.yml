@@ -1,0 +1,107 @@
+# =============================================================================
+# FILE: .github/workflows/cd.yml
+# OVERVIEW: The main delivery pipeline. Runs on every merge to main:
+#
+#   build (test + docker build + scan + push to ECR, tag = commit SHA)
+#      -> deploy dev   (automatic)
+#      -> deploy prod  (waits for manual approval in GitHub "prod" environment)
+#
+# "Build once, promote": the exact same image SHA goes to dev, then prod.
+# Required GitHub repo VARIABLES: AWS_ACCOUNT_ID, AWS_REGION (e.g. ap-south-1)
+# =============================================================================
+name: CD
+
+# Trigger: merge/push to main, or manual run.
+on:
+  push:
+    branches: [main]
+    paths-ignore: ["docs/**", "**.md", "terraform/**"]
+  workflow_dispatch:
+
+# Only one deployment pipeline at a time; never cancel a running deploy.
+concurrency:
+  group: cd
+  cancel-in-progress: false
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  # Build both images, scan them for vulnerabilities, push to ECR.
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        app: [server, client]
+    env:
+      REGISTRY: ${{ vars.AWS_ACCOUNT_ID }}.dkr.ecr.${{ vars.AWS_REGION }}.amazonaws.com
+    steps:
+      - uses: actions/checkout@v4
+
+      # Run backend tests only in the server leg (cheap sanity check before shipping).
+      - uses: actions/setup-node@v4
+        if: matrix.app == 'server'
+        with: { node-version: 20, cache: npm, cache-dependency-path: server/package-lock.json }
+      - name: Server tests
+        if: matrix.app == 'server'
+        working-directory: server
+        run: npm ci && npm test -- --passWithNoTests
+
+      # Passwordless AWS login with the build role (can only push to ECR).
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/paytrack-gha-build
+          aws-region: ${{ vars.AWS_REGION }}
+      - uses: aws-actions/amazon-ecr-login@v2
+      - uses: docker/setup-buildx-action@v3
+
+      # Build into the local docker daemon first (not pushed yet) so it can be scanned.
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./${{ matrix.app }}
+          load: true
+          tags: ${{ env.REGISTRY }}/paytrack-${{ matrix.app }}:${{ github.sha }}
+          cache-from: type=gha,scope=${{ matrix.app }}
+          cache-to: type=gha,scope=${{ matrix.app }},mode=max
+
+      # Fail the pipeline on CRITICAL vulnerabilities that already have a fix.
+      - name: Scan image (Trivy)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ env.REGISTRY }}/paytrack-${{ matrix.app }}:${{ github.sha }}
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
+      # Scan passed -> push (layers are cached, so this is fast).
+      - name: Push image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./${{ matrix.app }}
+          push: true
+          tags: ${{ env.REGISTRY }}/paytrack-${{ matrix.app }}:${{ github.sha }}
+          cache-from: type=gha,scope=${{ matrix.app }}
+
+  # Automatic deployment to DEV.
+  deploy-dev:
+    needs: build
+    uses: ./.github/workflows/_deploy.yml
+    with:
+      env: dev
+      host: dev.getgautam.co.uk
+      sha: ${{ github.sha }}
+      region: ${{ vars.AWS_REGION }}
+      account_id: ${{ vars.AWS_ACCOUNT_ID }}
+
+  # PROD: only starts after dev succeeded AND a reviewer approves the "prod" environment.
+  deploy-prod:
+    needs: deploy-dev
+    uses: ./.github/workflows/_deploy.yml
+    with:
+      env: prod
+      host: getgautam.co.uk
+      sha: ${{ github.sha }}
+      region: ${{ vars.AWS_REGION }}
+      account_id: ${{ vars.AWS_ACCOUNT_ID }}

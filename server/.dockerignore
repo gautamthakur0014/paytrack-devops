@@ -1,0 +1,17 @@
+# =============================================================================
+# FILE: server/.dockerignore
+# OVERVIEW: Files excluded from the Docker build context. Keeps images small
+# and, importantly, keeps secrets (.env) OUT of the image.
+# =============================================================================
+
+# Never bake secrets or local installs into the image.
+.env
+.env.*
+node_modules
+logs
+
+# Dev-only noise.
+npm-debug.log
+coverage
+.git
+Dockerfile

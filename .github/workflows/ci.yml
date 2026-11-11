@@ -1,0 +1,97 @@
+# =============================================================================
+# FILE: .github/workflows/ci.yml
+# OVERVIEW: "Is this change safe to merge?" - runs on every Pull Request to main.
+# Nothing is pushed or deployed. Jobs run in parallel:
+#   server     -> install + tests
+#   client     -> install + production build
+#   docker     -> both Dockerfiles must build
+#   validate   -> Kubernetes overlays render + Terraform fmt/validate
+# =============================================================================
+name: CI
+
+# Trigger: any PR targeting main (also runnable by hand).
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# Cancel older runs of the same PR when new commits arrive.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # Backend: install deps and run Jest. The project has no tests yet, so
+  # --passWithNoTests keeps CI green until you add some.
+  server:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: server } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - run: npm ci
+      - run: npm test -- --passWithNoTests
+
+  # Frontend: make sure the Vite production build succeeds.
+  client:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: client } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+      - run: npm ci
+      - run: npm run build
+        env:
+          VITE_API_URL: ""
+
+  # Both images must build (push: false => nothing leaves the runner).
+  docker:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        app: [server, client]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: ./${{ matrix.app }}
+          push: false
+          cache-from: type=gha,scope=${{ matrix.app }}
+          cache-to: type=gha,scope=${{ matrix.app }},mode=max
+
+  # Static checks of the infrastructure code (no AWS credentials needed).
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Render both Kubernetes overlays; fails on YAML/patch mistakes.
+      - name: Render Kubernetes overlays
+        run: |
+          kubectl kustomize k8s/overlays/dev  > /dev/null
+          kubectl kustomize k8s/overlays/prod > /dev/null
+
+      - uses: hashicorp/setup-terraform@v3
+        with: { terraform_version: 1.10.5 }
+
+      # Formatting check across all Terraform folders.
+      - run: terraform fmt -check -recursive terraform
+
+      # Syntax/type check of each root module (-backend=false: no S3 needed).
+      - name: Terraform validate
+        run: |
+          for d in bootstrap envs/dev envs/prod; do
+            (cd terraform/$d && terraform init -backend=false -input=false >/dev/null && terraform validate)
+          done

@@ -1,0 +1,83 @@
+# =============================================================================
+# FILE: .github/workflows/terraform.yml
+# OVERVIEW: Manual infrastructure pipeline (workflow_dispatch). Pick:
+#   env    = dev | prod
+#   action = plan    (show what would change)
+#            apply   (create/update VPC, EKS, add-ons, cert, secret container)
+#            destroy (clean the app's ALB first, then delete everything)
+# Uses GitHub environment "infra-<env>" (add required reviewers to infra-prod).
+# Required GitHub repo VARIABLES: AWS_ACCOUNT_ID, AWS_REGION, TF_STATE_BUCKET,
+# optional EXTRA_ADMIN_ARNS (HCL list, e.g. ["arn:aws:iam::123:user/me"]).
+# =============================================================================
+name: Terraform
+
+on:
+  workflow_dispatch:
+    inputs:
+      env:
+        description: Environment
+        type: choice
+        options: [dev, prod]
+        required: true
+      action:
+        description: What to do
+        type: choice
+        options: [plan, apply, destroy]
+        default: plan
+        required: true
+
+# One infra run per environment at a time (state lock friendliness).
+concurrency:
+  group: terraform-${{ inputs.env }}
+  cancel-in-progress: false
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  terraform:
+    runs-on: ubuntu-latest
+    environment: infra-${{ inputs.env }}
+    defaults:
+      run:
+        working-directory: terraform/envs/${{ inputs.env }}
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      TF_VAR_extra_admin_arns: ${{ vars.EXTRA_ADMIN_ARNS || '[]' }}
+      TF_IN_AUTOMATION: "true"
+    steps:
+      - uses: actions/checkout@v4
+
+      # Passwordless login with the terraform role (admin; only for infra-* environments).
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/paytrack-gha-terraform
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with: { terraform_version: 1.10.5 }
+
+      # Connect to the S3 backend (state file key is set inside main.tf per env).
+      - name: Terraform init
+        run: terraform init -input=false -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}"
+
+      # Destroy only: remove the ALB/DNS created by Kubernetes BEFORE the cluster disappears.
+      - name: Clean up ALB and DNS (destroy only)
+        if: inputs.action == 'destroy'
+        working-directory: .
+        run: bash ./scripts/pre-destroy.sh ${{ inputs.env }}
+
+      # Preview the change (plan for plan/apply, destroy-plan for destroy).
+      - name: Terraform plan
+        run: |
+          if [ "${{ inputs.action }}" = "destroy" ]; then
+            terraform plan -destroy -input=false -out=tfplan
+          else
+            terraform plan -input=false -out=tfplan
+          fi
+
+      # Execute the saved plan (apply and destroy both just apply tfplan).
+      - name: Terraform apply
+        if: inputs.action != 'plan'
+        run: terraform apply -input=false tfplan

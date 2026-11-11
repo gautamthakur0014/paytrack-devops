@@ -1,0 +1,13 @@
+# =============================================================================
+# FILE: client/.dockerignore
+# OVERVIEW: Excludes local files from the client build context. client/.env is
+# excluded so VITE_API_URL always comes from the Dockerfile ARG, never from a
+# developer's local file.
+# =============================================================================
+.env
+.env.*
+node_modules
+dist
+.git
+Dockerfile
+README.md

@@ -1,0 +1,10 @@
+# =============================================================================
+# FILE: k8s/base/namespace.yaml
+# OVERVIEW: Creates the "paytrack" namespace that holds every app resource.
+# =============================================================================
+
+# Namespace that isolates PayTrack objects from system components.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: paytrack

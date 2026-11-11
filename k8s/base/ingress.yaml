@@ -1,0 +1,44 @@
+# =============================================================================
+# FILE: k8s/base/ingress.yaml
+# OVERVIEW: One Ingress => one AWS ALB (made by AWS Load Balancer Controller).
+#   https://<host>/api/*  -> paytrack-server
+#   https://<host>/health -> paytrack-server (smoke test)
+#   https://<host>/*      -> paytrack-client
+# - HTTP is redirected to HTTPS.
+# - The TLS cert is auto-discovered in ACM by matching the host name
+#   (cert is created by Terraform), so no ARN is needed here.
+# - DNS record <host> -> ALB is created automatically by ExternalDNS.
+# The host is patched per environment in k8s/overlays/*.
+# =============================================================================
+
+# Public entry point of the application.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: paytrack
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80},{"HTTPS":443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+spec:
+  ingressClassName: alb
+  tls:
+    - hosts: [REPLACED_BY_OVERLAY]
+  rules:
+    - host: REPLACED_BY_OVERLAY
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service: { name: paytrack-server, port: { number: 80 } }
+          # Public health endpoint of the API (used by the CD smoke test).
+          - path: /health
+            pathType: Exact
+            backend:
+              service: { name: paytrack-server, port: { number: 80 } }
+          - path: /
+            pathType: Prefix
+            backend:
+              service: { name: paytrack-client, port: { number: 80 } }
