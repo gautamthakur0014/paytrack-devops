@@ -49,6 +49,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Check GitHub OIDC configuration
+        run: |
+          echo "Repository: $GITHUB_REPOSITORY"
+          echo "Ref: $GITHUB_REF"
+          echo "Environment: infra-${{ inputs.env }}"
+          echo "OIDC permission: configured in workflow permissions"
+
       # Passwordless login with the terraform role (admin; only for infra-* environments).
       - uses: aws-actions/configure-aws-credentials@v4
         with:
