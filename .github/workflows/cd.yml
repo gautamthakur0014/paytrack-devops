@@ -13,9 +13,9 @@ name: CD
 
 # Trigger: merge/push to main, or manual run.
 on:
-  push:
-    branches: [main]
-    paths-ignore: ["docs/**", "**.md", "terraform/**"]
+  # push:
+  #   branches: [main]
+  #   paths-ignore: ["docs/**", "**.md", "terraform/**"]
   workflow_dispatch:
 
 # Only one deployment pipeline at a time; never cancel a running deploy.
