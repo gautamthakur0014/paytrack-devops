@@ -64,6 +64,19 @@ jobs:
             console.log('GitHub successfully issued OIDC token');
             console.log('Token length:', token.length);
 
+      - name: Debug OIDC claims
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const token = await core.getIDToken('sts.amazonaws.com');
+            const payload = JSON.parse(
+            Buffer.from(token.split('.')[1], 'base64url').toString()
+            );
+
+            console.log('OIDC issuer:', payload.iss);
+            console.log('OIDC audience:', payload.aud);
+            console.log('OIDC subject:', payload.sub);
+            
       # Passwordless login with the terraform role (admin; only for infra-* environments).
       - uses: aws-actions/configure-aws-credentials@v4
         with:
