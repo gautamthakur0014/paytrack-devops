@@ -111,7 +111,8 @@ resource "aws_iam_openid_connect_provider" "github" {
 }
 
 locals {
-  gh = "repo:${var.github_repo}"
+  # gh = "repo:${var.github_repo}"
+  gh = "repo:${var.github_owner}@${var.github_owner_id}/${var.github_repo}@${var.github_repo_id}"
 
   # Which GitHub job may assume which role. The "sub" claim of the token pins the
   # role to this repo AND to a branch / GitHub Environment.

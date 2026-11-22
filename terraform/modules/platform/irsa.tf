@@ -48,9 +48,9 @@ module "eso_irsa" {
   source  = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts-eks"
   version = "~> 5.52"
 
-  role_name                              = "${local.name}-external-secrets"
-  attach_external_secrets_policy         = true
-  external_secrets_secrets_manager_arns  = ["arn:aws:secretsmanager:${var.region}:${data.aws_caller_identity.current.account_id}:secret:paytrack/${var.env}/*"]
+  role_name                             = "${local.name}-external-secrets"
+  attach_external_secrets_policy        = true
+  external_secrets_secrets_manager_arns = ["arn:aws:secretsmanager:${var.region}:${data.aws_caller_identity.current.account_id}:secret:paytrack/${var.env}/*"]
 
   oidc_providers = {
     main = {

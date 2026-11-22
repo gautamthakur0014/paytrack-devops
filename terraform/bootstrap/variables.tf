@@ -16,7 +16,27 @@ variable "domain_name" {
 }
 
 # GitHub repo allowed to deploy, in "owner/name" form. NO default on purpose.
+# variable "github_repo" {
+#   type        = string
+#   description = "e.g. gautam/paytrack"
+# }
+
+variable "github_owner" {
+  type = string
+  description = "owner name"
+}
+
+variable "github_owner_id" {
+  type = string
+  description = "owner id"
+}
+
 variable "github_repo" {
-  type        = string
-  description = "e.g. gautam/paytrack"
+  type = string
+  description = "repo name"
+}
+
+variable "github_repo_id" {
+  type = string
+  description = "repo id"
 }
