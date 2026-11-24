@@ -40,3 +40,9 @@ variable "github_repo_id" {
   type = string
   description = "repo id"
 }
+
+# IAM user you use on your laptop (aws configure). It gets the operator policy below.
+variable "operator_user_name" {
+  type    = string
+  default = "terraform_user"
+}

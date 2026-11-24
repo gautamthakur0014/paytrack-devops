@@ -196,3 +196,31 @@ resource "aws_iam_role_policy_attachment" "terraform_admin" {
   role       = aws_iam_role.gha["terraform"].name
   policy_arn = "arn:aws:iam::aws:policy/AdministratorAccess"
 }
+
+
+# ─── 5. Permissions for YOU (the laptop user) ─────────────────────────────────
+
+# Lets your IAM user (a) load secrets into paytrack/* in Secrets Manager and
+# (b) fetch the EKS kubeconfig. What you may do INSIDE the cluster is granted
+# separately by EXTRA_ADMIN_ARNS (EKS access entry). Both are needed for kubectl.
+resource "aws_iam_user_policy" "operator" {
+  name = "paytrack-operator"
+  user = var.operator_user_name
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid      = "ReadWriteAppSecrets"
+        Effect   = "Allow"
+        Action   = ["secretsmanager:PutSecretValue", "secretsmanager:DescribeSecret", "secretsmanager:GetSecretValue"]
+        Resource = "arn:aws:secretsmanager:${var.region}:${data.aws_caller_identity.current.account_id}:secret:paytrack/*"
+      },
+      {
+        Sid      = "KubectlAccess"
+        Effect   = "Allow"
+        Action   = ["eks:DescribeCluster", "eks:ListClusters"]
+        Resource = "*"
+      }
+    ]
+  })
+}
