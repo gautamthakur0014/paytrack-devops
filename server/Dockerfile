@@ -18,6 +18,9 @@ FROM node:20-alpine AS runtime
 ENV NODE_ENV=production
 WORKDIR /app
 
+# Patch OS packages that have fixes newer than the base image (keeps Trivy green).
+RUN apk upgrade --no-cache
+
 # Copy node_modules from stage 1 and then the application source code.
 COPY --from=deps /app/node_modules ./node_modules
 COPY package.json ./

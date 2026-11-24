@@ -23,6 +23,8 @@ RUN npm run build
 
 # Stage 2: tiny nginx image that only contains the compiled files.
 FROM nginx:1.27-alpine AS runtime
+# Patch OS packages that have fixes newer than the base image (keeps Trivy green).
+RUN apk upgrade --no-cache
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /app/dist /usr/share/nginx/html
 EXPOSE 80
