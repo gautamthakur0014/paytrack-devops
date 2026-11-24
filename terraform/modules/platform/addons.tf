@@ -5,6 +5,7 @@
 #   1. AWS Load Balancer Controller -> turns an Ingress into an AWS ALB
 #   2. ExternalDNS                  -> creates the Route53 record for the Ingress host
 #   3. External Secrets Operator    -> syncs AWS Secrets Manager -> K8s Secrets
+# Install order: LB controller FIRST, then the other two (see depends_on).
 # Chart versions are pinned. If Helm says "version not found", list valid ones
 # with: helm search repo <chart> --versions
 # =============================================================================
@@ -56,7 +57,10 @@ resource "helm_release" "external_dns" {
     }
   })]
 
-  depends_on = [module.eks]
+  # Must wait for the LB controller: its webhook intercepts EVERY Service creation,
+  # so installing charts that create Services before it is Ready fails with
+  # "no endpoints available for service aws-load-balancer-webhook-service".
+  depends_on = [module.eks, helm_release.lb_controller]
 }
 
 # 3) External Secrets Operator (also installs the ExternalSecret/SecretStore CRDs).
@@ -77,5 +81,6 @@ resource "helm_release" "external_secrets" {
     }
   })]
 
-  depends_on = [module.eks]
+  # Same reason as above: wait until the LB controller webhook is serving.
+  depends_on = [module.eks, helm_release.lb_controller]
 }
