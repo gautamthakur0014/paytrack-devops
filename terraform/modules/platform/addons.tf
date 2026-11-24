@@ -48,7 +48,7 @@ resource "helm_release" "external_dns" {
     policy        = "sync"
     registry      = "txt"
     txtOwnerId    = local.name
-    domainFilters = [var.app_domain]
+    domainFilters = [var.root_domain]
     env           = [{ name = "AWS_DEFAULT_REGION", value = var.region }]
     serviceAccount = {
       create      = true
